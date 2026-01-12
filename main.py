@@ -49,9 +49,10 @@ async def schedule_post(
     Планирует отправку сообщения в Telegram на указанное время (UTC).
     Поддерживает отправку текста, URL картинок и загрузку файлов.
     """
-    # Проверка, что время в будущем
-    if publish_at <= datetime.now(timezone.utc):
-        raise HTTPException(status_code=400, detail="Publication time must be in the future")
+    # Если время публикации в прошлом или сейчас, публикуем немедленно
+    now = datetime.now(timezone.utc)
+    if publish_at <= now:
+        publish_at = now
 
     media_paths = []
     
