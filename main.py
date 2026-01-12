@@ -8,6 +8,7 @@ import os
 import shutil
 import uuid
 from typing import List, Optional
+from pydantic import TypeAdapter
 
 from bot_service import send_scheduled_message
 
@@ -41,7 +42,7 @@ app = FastAPI(lifespan=lifespan, title="Telegram Post Scheduler")
 async def schedule_post(
     chat_id: str = Form(..., description="ID канала или группы"),
     text: Optional[str] = Form(None, description="Текст сообщения"),
-    publish_at: datetime = Form(..., description="Время публикации в UTC"),
+    publish_at: Optional[str] = Form(None, description="Время публикации в UTC (ISO 8601). Если пусто или некорректно — публикация сразу."),
     photo_urls: List[str] = Form(default=[], description="Список URL картинок"),
     files: List[UploadFile] = File(default=[], description="Список файлов картинок")
 ):
@@ -49,11 +50,26 @@ async def schedule_post(
     Планирует отправку сообщения в Telegram на указанное время (UTC).
     Поддерживает отправку текста, URL картинок и загрузку файлов.
     """
-    # Если время публикации в прошлом или сейчас, публикуем немедленно
     now = datetime.now(timezone.utc)
-    if publish_at <= now:
-        publish_at = now
-
+    
+    # Логика определения времени публикации
+    run_date = now
+    if publish_at:
+        try:
+            # Пытаемся распарсить дату
+            parsed = TypeAdapter(datetime).validate_python(publish_at)
+            
+            # Если дата без таймзоны, считаем её UTC
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            
+            # Если дата в будущем, используем её. Иначе (прошлое) остается now (сразу)
+            if parsed > now:
+                run_date = parsed
+        except Exception:
+            # Если ошибка парсинга — публикуем сразу (оставляем run_date = now)
+            logger.warning(f"Invalid date format received: {publish_at}. Publishing immediately.")
+    
     media_paths = []
     
     # Добавляем URL
@@ -84,14 +100,14 @@ async def schedule_post(
         job = scheduler.add_job(
             send_scheduled_message,
             'date',
-            run_date=publish_at,
+            run_date=run_date,
             args=[chat_id, text, media_paths]
         )
         
         return {
             "status": "scheduled",
             "job_id": job.id,
-            "publish_at": publish_at,
+            "publish_at": run_date,
             "chat_id": chat_id,
             "media_count": len(media_paths)
         }
