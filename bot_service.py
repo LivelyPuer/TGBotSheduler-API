@@ -21,6 +21,7 @@ async def send_scheduled_message(chat_id: str | int, text: str | None, media_pat
     Отправляет сообщение в Telegram.
     Поддерживает текст, одно фото или группу фото.
     Принимает список путей (URL или локальные пути).
+    Удаляет локальные файлы после попытки отправки.
     """
     if not BOT_TOKEN:
         logging.error("Cannot send message: BOT_TOKEN is missing")
@@ -64,3 +65,14 @@ async def send_scheduled_message(chat_id: str | int, text: str | None, media_pat
         logging.error(f"Failed to send message to {chat_id}: {e}")
     finally:
         await bot.session.close()
+        
+        # Автоматическая очистка локальных файлов
+        for path in media_paths:
+            # Проверяем, что это не URL и файл существует
+            if not (path.startswith("http://") or path.startswith("https://")):
+                try:
+                    if os.path.exists(path):
+                        os.remove(path)
+                        logging.info(f"Deleted temporary file: {path}")
+                except Exception as e:
+                    logging.error(f"Failed to delete file {path}: {e}")
